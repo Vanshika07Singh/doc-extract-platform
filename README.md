@@ -3,14 +3,14 @@
 Turn messy documents — invoices, receipts, purchase orders, resumes, contracts, and IDs — into clean, validated, **confidence-scored JSON**.
 
 ```
-PDF / image  →  OCR  →  Layout parsing  →  Classification  →  NER + LLM extraction  →  Pydantic validation  →  Scored JSON
+PDF / image  →  OCR  →  Geometric layout analysis  →  Classification  →  NER + LLM extraction  →  Pydantic validation  →  Scored JSON
 ```
 
 ## What it does
 
 - **OCR** — native PDF text via `pdfplumber`, scanned pages & images via **Tesseract** (with word-level boxes + confidence).
-- **Layout parsing** — geometric reconstruction of lines/blocks/reading order (a dependency-light stand-in for LayoutParser).
-- **Classification** — fast, explainable keyword-scored document-type detection.
+- **Layout analysis** — lightweight geometric reconstruction of lines/blocks/reading order, inspired by LayoutParser-style document structure modeling. The code is pluggable so full layout models can be added later.
+- **Classification** — fast, explainable keyword-scored document-type detection. This is intentionally simple for the MVP and documented as a limitation.
 - **Extraction** — **OpenAI LLM** guided by a JSON schema, corroborated by a **spaCy + regex** baseline.
 - **Validation** — every output is coerced into a typed **Pydantic** model per document type.
 - **Confidence scoring** — each field gets a 0–1 score from *grounding* (does the value appear in the OCR text?), *corroboration* (did regex/spaCy independently find it?), and *OCR quality*. Low-confidence fields are flagged for review.
@@ -57,6 +57,8 @@ app/
   static/index.html      drag-and-drop web UI
 tests/                   offline pipeline tests
 scripts/make_sample.py   generates a sample invoice image
+scripts/evaluate.py      computes field-level benchmark metrics
+data/benchmark.jsonl     small labeled synthetic benchmark
 ```
 
 ## Setup
@@ -127,6 +129,29 @@ pip install pytest
 pytest -q
 ```
 
+## Evaluation
+
+The repo includes a small labeled **synthetic** benchmark so extraction quality can be measured instead of only demonstrated:
+
+```bash
+python scripts/evaluate.py
+```
+
+Current offline-baseline result on `data/benchmark.jsonl`:
+
+```json
+{
+  "documents": 6,
+  "classification_accuracy": 1.0,
+  "field_accuracy": 0.9706,
+  "precision": 0.825,
+  "recall": 0.9706,
+  "f1": 0.8919
+}
+```
+
+These numbers are useful for development sanity checks, but they should **not** be presented as production accuracy. For resume-grade metrics, expand the benchmark with public datasets such as CORD (receipts), FUNSD (forms), or a labeled set of invoices/resumes/POs with varied layouts, scans, blur, rotation, and OCR noise.
+
 ## Modes
 
 - **LLM mode** (recommended): set `OPENAI_API_KEY`. The LLM extracts into the schema; regex/spaCy corroborate to raise confidence.
@@ -136,8 +161,17 @@ pytest -q
 
 - **Add a document type**: add a Pydantic model in `app/schemas/documents.py`, register it in `SCHEMA_REGISTRY`, and add keyword signals in `app/pipeline/classify.py`.
 - **Swap OCR engine** (e.g. PaddleOCR): implement an alternative in `app/pipeline/ocr.py` returning the same `OcrResult` shape.
-- **Real LayoutParser**: replace `analyze_layout` in `app/pipeline/layout.py` with a Detectron2-backed version returning the same `LayoutResult`.
+- **Full layout models**: replace `analyze_layout` in `app/pipeline/layout.py` with a LayoutParser/Detectron2-backed version returning the same `LayoutResult`.
+- **Stronger classification**: replace keyword scoring with sentence-transformer embeddings, LayoutLM, or a fine-tuned document classifier once a labeled dataset exists.
+
+## Limitations
+
+- The current layout stage is **geometric**, not a trained LayoutParser/Detectron2 model.
+- The document-type classifier is rule/keyword based, which is explainable but weaker than embedding or transformer-based classifiers on ambiguous documents.
+- The included benchmark is small and synthetic. It demonstrates the evaluation loop but is not enough to claim real-world accuracy.
+- OCR quality can drop on handwriting, low-resolution scans, heavy skew/rotation, or noisy receipts.
+- Table extraction is heuristic and works best for simple rows with description, quantity, unit price, and amount.
 
 ## AI concepts demonstrated
 
-OCR · Named Entity Recognition · Document AI / layout analysis · LLM structured extraction · schema validation · confidence scoring & human-in-the-loop routing.
+OCR · Named Entity Recognition · Document AI / geometric layout analysis · LLM structured extraction · schema validation · confidence scoring & human-in-the-loop routing · evaluation metrics.

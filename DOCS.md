@@ -30,7 +30,7 @@ PDF / image
 [1] OCR ──────────►  raw text + word boxes + per-word confidence
    │
    ▼
-[2] Layout parsing ►  text reassembled in reading order, grouped into blocks
+[2] Layout analysis ►  text reassembled in reading order, grouped into blocks
    │
    ▼
 [3] Classification ►  "this is an invoice" (+ how sure)
@@ -70,7 +70,7 @@ Each stage below names the **AI concept** it demonstrates and the **file** that 
 > Trade-off worth mentioning: hybrid OCR (native text when available, Tesseract fallback
 > for scans) maximizes both accuracy and speed.
 
-### Stage 2 — Layout parsing · `app/pipeline/layout.py`
+### Stage 2 — Layout analysis · `app/pipeline/layout.py`
 **Concept: Document AI / spatial layout analysis.** Raw OCR output can be jumbled
 (multi-column docs especially). Using word **coordinates**, this stage:
 
@@ -78,10 +78,10 @@ Each stage below names the **AI concept** it demonstrates and the **file** that 
 - groups lines into **blocks** (separated by vertical gaps),
 - produces text in correct **reading order**.
 
-The spec mentioned **LayoutParser** (a Detectron2-based deep-learning layout model). That's
-heavy to install, so this is a **geometric** implementation returning the same shape. The
-README documents how to swap in real LayoutParser later — a deliberate, defensible
-engineering trade-off.
+This is **not** currently a trained LayoutParser/Detectron2 model. It is a lightweight
+geometric implementation inspired by LayoutParser-style document structure modeling. The
+important design decision is that it returns a clean `LayoutResult` shape, so a full
+LayoutParser, Detectron2, PubLayNet, or LayoutLM-based layout model can be plugged in later.
 
 ### Stage 3 — Classification · `app/pipeline/classify.py`
 **Concept: document classification.** You must know *what* to extract before extracting
@@ -89,6 +89,10 @@ engineering trade-off.
 classifier**: each document type has signal phrases with weights (e.g. `"purchase order"`
 = 4.0), it scores all six types, picks the highest, and derives confidence from
 "share of evidence" + "absolute strength." Fast, explainable, fully offline.
+
+This is intentionally simple for the MVP. In an interview, present it honestly as a baseline.
+The obvious upgrade is sentence-transformer embeddings, LayoutLM, or a fine-tuned document
+classifier once a labeled dataset exists.
 
 ### Stage 4 — Extraction · `extract.py`, `llm_extract.py`, `spacy_ner.py`, `regex_extract.py`
 **Concepts: NER + LLM extraction + fusion.** This is the heart. Two independent extractors run:
@@ -153,7 +157,7 @@ app/
     extract.py           POST /api/extract, GET /api/document-types
   pipeline/
     ocr.py               Tesseract / pdfplumber OCR (text + word boxes + confidence)
-    layout.py            geometric layout analysis (LayoutParser stand-in)
+    layout.py            geometric layout analysis (pluggable layout-model interface)
     classify.py          weighted-keyword document-type classifier
     spacy_ner.py         spaCy NER baseline
     regex_extract.py     deterministic extractors (money, dates, ids, line items...)
@@ -164,6 +168,8 @@ app/
   static/index.html      drag-and-drop web UI
 tests/                   offline pipeline tests (no OCR binary or API key needed)
 scripts/make_sample.py   generates a sample invoice image
+scripts/evaluate.py      computes field-level benchmark metrics
+data/benchmark.jsonl     small labeled synthetic benchmark
 ```
 
 ---
@@ -205,6 +211,29 @@ curl -s -X POST http://127.0.0.1:8000/api/extract \
 pytest -q          # runs fully offline
 ```
 
+### Evaluation
+```bash
+python scripts/evaluate.py
+```
+
+The included benchmark is intentionally small and synthetic. Current offline-baseline result:
+
+```json
+{
+  "documents": 6,
+  "classification_accuracy": 1.0,
+  "field_accuracy": 0.9706,
+  "precision": 0.825,
+  "recall": 0.9706,
+  "f1": 0.8919
+}
+```
+
+Use those numbers as a development sanity check, not as production claims. For resume-grade
+metrics, expand the benchmark with public or manually labeled documents: CORD for receipts,
+FUNSD for forms, and additional invoices/resumes/purchase orders with blur, skew, rotation,
+different layouts, and OCR noise.
+
 ### Two modes
 - **LLM mode** (set `OPENAI_API_KEY`): LLM extracts into the schema; regex/spaCy corroborate.
 - **Offline mode** (blank key): spaCy + regex baseline only — no external calls.
@@ -213,7 +242,7 @@ pytest -q          # runs fully offline
 
 ## 6. Why the design choices are good
 
-- **Pluggable stages** — swap Tesseract↔PaddleOCR or geometric↔LayoutParser without
+- **Pluggable stages** — swap Tesseract↔PaddleOCR or geometric↔LayoutParser/Detectron2 without
   touching the rest. Clean separation of concerns.
 - **Graceful degradation** — works fully offline; the LLM is an enhancement, not a hard
   dependency. Bad files return warnings instead of crashing.
@@ -233,12 +262,16 @@ pytest -q          # runs fully offline
   baseline; the LLM is an enhancer, not a hard dependency.
 - **"How do you handle different document types?"** — A keyword classifier routes to one of
   six typed schemas; the extractor is schema-driven, so adding a type = add a Pydantic model
-  + keywords.
+  + keywords. This is the MVP baseline; a stronger version would use sentence embeddings or
+  LayoutLM on labeled examples.
 - **"How does confidence work?"** — A blend of grounding (fuzzy match to OCR text),
   corroboration, and OCR word confidence, because LLMs aren't calibrated.
 - **"How would you scale / productionize?"** — Async workers/queue for OCR, a batch
   endpoint, caching, swap in real LayoutParser + PaddleOCR, and an eval harness with labeled
   data reporting per-field F1.
+- **"Are you using real LayoutParser?"** — No. The current implementation is geometric layout
+  reconstruction from OCR word boxes. It is inspired by LayoutParser-style structure modeling
+  and designed so a real LayoutParser/Detectron2 model can replace it behind the same interface.
 
 ---
 
@@ -255,7 +288,22 @@ pytest -q          # runs fully offline
 
 ---
 
-## 9. Glossary
+## 9. Limitations and roadmap
+
+- **Layout:** current layout parsing is geometric, not a trained LayoutParser/Detectron2 model.
+  Roadmap: integrate LayoutParser with PubLayNet/FUNSD-style layout labels.
+- **Classifier:** current classifier is keyword based. Roadmap: sentence-transformer cosine
+  similarity for a quick upgrade, then LayoutLM/fine-tuned classifier for document images.
+- **Metrics:** the included benchmark is small and synthetic. Roadmap: evaluate on CORD, FUNSD,
+  and a larger set of labeled invoices/resumes/receipts before quoting resume metrics.
+- **OCR:** Tesseract struggles with handwriting, low-resolution images, rotation, and noisy
+  receipts. Roadmap: add preprocessing and optionally PaddleOCR.
+- **Tables:** line-item extraction is heuristic. Roadmap: table detection/structure recovery
+  using layout models or table-specific parsers.
+
+---
+
+## 10. Glossary
 
 - **OCR** — Optical Character Recognition; images/scans → text.
 - **NER** — Named Entity Recognition; tagging spans as PERSON, ORG, DATE, etc.
