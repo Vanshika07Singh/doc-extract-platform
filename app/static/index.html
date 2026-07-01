@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Document Intelligence Platform</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: #151b30;
+      --panel-2: #1c2440;
+      --text: #e6e9f2;
+      --muted: #97a0bd;
+      --accent: #6c8cff;
+      --accent-2: #36d399;
+      --warn: #fbbd23;
+      --danger: #f87272;
+      --border: #2a3252;
+      --radius: 14px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: radial-gradient(1200px 600px at 80% -10%, #1b2750 0%, transparent 60%), var(--bg);
+      background-color: var(--bg); color: var(--text); min-height: 100vh;
+    }
+    header { padding: 32px 24px 8px; max-width: 1100px; margin: 0 auto; }
+    h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.5px; }
+    .sub { color: var(--muted); font-size: 14px; }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 16px 24px 64px; display: grid; grid-template-columns: 380px 1fr; gap: 20px; }
+    @media (max-width: 880px) { .wrap { grid-template-columns: 1fr; } }
+    .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }
+    label { display: block; font-size: 13px; color: var(--muted); margin: 14px 0 6px; }
+    select, button {
+      width: 100%; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border);
+      background: var(--panel-2); color: var(--text); font-size: 14px;
+    }
+    button.primary { background: linear-gradient(180deg, var(--accent), #5474f0); border: none; cursor: pointer; font-weight: 600; margin-top: 18px; }
+    button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .drop {
+      margin-top: 8px; border: 1.5px dashed var(--border); border-radius: 12px; padding: 28px 16px; text-align: center;
+      color: var(--muted); cursor: pointer; transition: 0.15s; background: var(--panel-2);
+    }
+    .drop.drag { border-color: var(--accent); color: var(--text); background: #1f294a; }
+    .drop strong { color: var(--text); }
+    .filename { margin-top: 10px; font-size: 13px; color: var(--accent-2); word-break: break-all; }
+    .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+    .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .pill { font-size: 12px; color: var(--muted); }
+    .field { border-top: 1px solid var(--border); padding: 12px 0; }
+    .field:first-child { border-top: none; }
+    .field .k { font-size: 13px; color: var(--muted); }
+    .field .v { font-size: 15px; margin: 2px 0 8px; word-break: break-word; }
+    .bar { height: 6px; border-radius: 999px; background: #2a3252; overflow: hidden; }
+    .bar > span { display: block; height: 100%; }
+    .meta { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0 0; }
+    .chip { background: var(--panel-2); border: 1px solid var(--border); border-radius: 999px; padding: 5px 12px; font-size: 12px; color: var(--muted); }
+    pre { background: #0c1124; border: 1px solid var(--border); border-radius: 10px; padding: 14px; overflow: auto; font-size: 12.5px; max-height: 380px; }
+    .tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+    .tab { padding: 8px 14px; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--border); cursor: pointer; font-size: 13px; }
+    .tab.active { background: var(--accent); border-color: var(--accent); color: white; }
+    .warn { background: #2a230e; border: 1px solid #5a4a16; color: var(--warn); padding: 10px 12px; border-radius: 10px; font-size: 13px; margin-bottom: 10px; }
+    .empty { color: var(--muted); text-align: center; padding: 48px 12px; }
+    .spinner { width: 18px; height: 18px; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; display: inline-block; animation: spin .8s linear infinite; vertical-align: -3px; margin-right: 8px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Multi-Document Intelligent Extraction</h1>
+    <div class="sub">OCR &middot; Layout parsing &middot; NER + LLM extraction &middot; Confidence scoring</div>
+  </header>
+
+  <div class="wrap">
+    <div class="card">
+      <div class="drop" id="drop">
+        <div>Drop a file here or <strong>click to browse</strong></div>
+        <div class="pill" style="margin-top:6px">PDF, PNG, JPG, TIFF &middot; max 25&nbsp;MB</div>
+        <div class="filename" id="filename"></div>
+        <input type="file" id="file" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.webp" hidden />
+      </div>
+
+      <label for="type">Document type</label>
+      <select id="type"><option value="">Auto-detect</option></select>
+
+      <button class="primary" id="run" disabled>Extract</button>
+      <div class="pill" id="llmstatus" style="margin-top:12px"></div>
+    </div>
+
+    <div class="card" id="results">
+      <div class="empty" id="empty">Upload a document to see structured JSON, per-field confidence, and OCR diagnostics.</div>
+      <div id="output" style="display:none">
+        <div class="row">
+          <div>
+            <span class="badge" id="typebadge"></span>
+            <span class="pill" id="overall"></span>
+          </div>
+        </div>
+        <div class="meta" id="meta"></div>
+        <div id="warnings" style="margin-top:12px"></div>
+
+        <div class="tabs" style="margin-top:16px">
+          <div class="tab active" data-tab="fields">Fields</div>
+          <div class="tab" data-tab="json">JSON</div>
+          <div class="tab" data-tab="ocr">Raw OCR</div>
+        </div>
+        <div id="tab-fields"></div>
+        <div id="tab-json" style="display:none"><pre id="jsonout"></pre></div>
+        <div id="tab-ocr" style="display:none"><pre id="ocrout"></pre></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (s) => document.querySelector(s);
+    let selectedFile = null;
+
+    fetch("/health").then(r => r.json()).then(h => {
+      $("#llmstatus").textContent = h.llm_enabled
+        ? "LLM extraction: enabled"
+        : "LLM disabled — running spaCy + regex baseline";
+    });
+
+    fetch("/api/document-types").then(r => r.json()).then(d => {
+      const sel = $("#type");
+      d.types.forEach(t => {
+        const o = document.createElement("option");
+        o.value = t; o.textContent = t.replace(/_/g, " ");
+        sel.appendChild(o);
+      });
+    });
+
+    const drop = $("#drop"), fileInput = $("#file");
+    drop.addEventListener("click", () => fileInput.click());
+    drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("drag"); });
+    drop.addEventListener("dragleave", () => drop.classList.remove("drag"));
+    drop.addEventListener("drop", (e) => {
+      e.preventDefault(); drop.classList.remove("drag");
+      if (e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener("change", (e) => { if (e.target.files.length) setFile(e.target.files[0]); });
+
+    function setFile(f) {
+      selectedFile = f;
+      $("#filename").textContent = f.name;
+      $("#run").disabled = false;
+    }
+
+    function confColor(c) {
+      if (c >= 0.75) return "var(--accent-2)";
+      if (c >= 0.5) return "var(--warn)";
+      return "var(--danger)";
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, (ch) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      }[ch]));
+    }
+
+    document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => {
+      document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+      t.classList.add("active");
+      ["fields", "json", "ocr"].forEach(name => {
+        $("#tab-" + name).style.display = (name === t.dataset.tab) ? "block" : "none";
+      });
+    }));
+
+    $("#run").addEventListener("click", async () => {
+      if (!selectedFile) return;
+      const btn = $("#run");
+      btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Extracting…';
+
+      const fd = new FormData();
+      fd.append("file", selectedFile);
+      const t = $("#type").value;
+      if (t) fd.append("document_type", t);
+
+      try {
+        const res = await fetch("/api/extract", { method: "POST", body: fd });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Request failed");
+        render(data);
+      } catch (err) {
+        alert("Error: " + err.message);
+      } finally {
+        btn.disabled = false; btn.textContent = "Extract";
+      }
+    });
+
+    function render(d) {
+      $("#empty").style.display = "none";
+      $("#output").style.display = "block";
+
+      const tb = $("#typebadge");
+      tb.textContent = d.document_type + "  (" + Math.round(d.type_confidence * 100) + "%)";
+      tb.style.background = "var(--panel-2)";
+      tb.style.border = "1px solid var(--border)";
+
+      $("#overall").textContent = "  overall confidence " + Math.round(d.overall_confidence * 100) + "%";
+
+      $("#meta").innerHTML = [
+        ["OCR engine", d.ocr.engine],
+        ["pages", d.ocr.pages],
+        ["OCR confidence", Math.round(d.ocr.mean_word_confidence * 100) + "%"],
+        ["chars", d.ocr.char_count],
+        ["needs review", d.needs_review.length],
+      ].map(([k, v]) => `<span class="chip">${escapeHtml(k)}: <b style="color:var(--text)">${escapeHtml(v)}</b></span>`).join("");
+
+      $("#warnings").innerHTML = (d.warnings || [])
+        .map(w => `<div class="warn">${escapeHtml(w)}</div>`).join("");
+
+      const f = $("#tab-fields");
+      f.innerHTML = Object.entries(d.fields).map(([k, fr]) => {
+        const pct = Math.round(fr.confidence * 100);
+        let val = fr.value;
+        if (val === null || val === "" || (Array.isArray(val) && !val.length)) val = "<i style='color:var(--muted)'>—</i>";
+        else if (typeof val === "object") val = "<pre style='margin:0'>" + escapeHtml(JSON.stringify(val, null, 2)) + "</pre>";
+        else val = escapeHtml(val);
+        return `<div class="field">
+          <div class="row"><span class="k">${escapeHtml(k)}</span>
+            <span class="pill">${escapeHtml(fr.source)}${fr.needs_review ? " · review" : ""} · ${pct}%</span></div>
+          <div class="v">${val}</div>
+          <div class="bar"><span style="width:${pct}%;background:${confColor(fr.confidence)}"></span></div>
+        </div>`;
+      }).join("");
+
+      $("#jsonout").textContent = JSON.stringify(d.data, null, 2);
+      $("#ocrout").textContent = d.raw_text || "(no raw text)";
+    }
+  </script>
+</body>
+</html>
